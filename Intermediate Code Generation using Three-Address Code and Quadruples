@@ -1,0 +1,64 @@
+#include <stdio.h>   // Standard I/O: gives us printf() and sprintf()
+#include <string.h>  // String functions: gives us strcpy()
+#include <ctype.h>   // Character functions: gives us isalnum()
+
+char ops[50], vals[50][10];   // ops  = operator stack (one char per entry); vals = operand stack (each entry is a string up to 9 chars, e.g. "a" or "t1")
+int otop = -1, vtop = -1, tcnt = 0;   // otop/vtop = index of top item of ops/vals (-1 means the stack is empty); tcnt = how many temporaries (t1, t2...) are created so far
+char Q[50][4][10];   // Quadruple table: Q[i][0]=Operator, Q[i][1]=Arg1, Q[i][2]=Arg2, Q[i][3]=Result of the i-th instruction
+int n = 0;   // Number of quadruples (instructions) generated so far; also the next free row of Q
+
+int pr(char o) {   // Returns the precedence (priority) of operator o
+  if (o == '*' || o == '/') return 2;   // Multiply and divide have the highest priority
+  if (o == '+' || o == '-') return 1;   // Add and subtract have lower priority
+  return 0;   // Anything else, mainly '(', gets 0 so that it is never popped by a normal operator
+}
+
+void emit() {   // Creates ONE instruction using the top operator and the top two operands
+  char op = ops[otop--];   // Pop the top operator from the operator stack (otop-- moves the top down by one)
+  char a[10], b[10], t[10];   // Local strings: a = left operand, b = right operand, t = new temporary name
+  strcpy(b, vals[vtop--]);   // Pop the right operand first, because it was pushed last
+  strcpy(a, vals[vtop--]);   // Pop the left operand second
+  sprintf(t, "t%d", ++tcnt);   // Make a new temporary name: increase tcnt first, then write "t1", "t2", ... into t
+  sprintf(Q[n][0], "%c", op);   // Store the operator character in the Op column of row n
+  strcpy(Q[n][1], a);   // Store the left operand in the Arg1 column
+  strcpy(Q[n][2], b);   // Store the right operand in the Arg2 column
+  strcpy(Q[n][3], t);   // Store the temporary name in the Result column
+  n++;   // Move to the next free row of the quadruple table
+  strcpy(vals[++vtop], t);   // Push the result t back on the operand stack so later operations can use it
+}
+
+void gen(char *e) {   // Scans the expression string e and builds all quadruples
+  for (int i = 0; e[i]; i++) {   // Visit each character; the loop stops at the string terminator '\0' (which is false)
+    char c = e[i], s[2] = {c, 0};   // c = current character; s = the same character as a 1-char string (needed to push on vals)
+    if (c == ' ') continue;   // Ignore spaces and move to the next character
+    if (isalnum(c)) strcpy(vals[++vtop], s);   // Letter or digit = operand: push it directly on the operand stack
+    else if (c == '(') ops[++otop] = c;   // Opening bracket: push it on the operator stack to mark the start of a group
+    else if (c == ')') {   // Closing bracket: the group inside the brackets is complete
+      while (ops[otop] != '(') emit();   // Process operators until the matching '(' is on top
+      otop--;   // Discard the '(' itself (brackets do not produce code)
+    } else {   // Otherwise c must be one of + - * /
+      while (otop >= 0 && pr(ops[otop]) >= pr(c))   // While the stack is not empty and the top operator has equal or higher priority than c...
+        emit();   // ...it must be done first, so generate its instruction (equal priority gives left-to-right associativity)
+      ops[++otop] = c;   // Now push the current operator on the operator stack
+    }
+  }   // End of the for loop: the whole expression has been read
+  while (otop >= 0) emit();   // Process all operators still waiting on the stack
+}
+
+int main() {   // Program starts here
+  char *rhs = "a + b * (c - d) / e";   // Right-hand side of the statement x = a + b * (c - d) / e (change this to test other expressions)
+  gen(rhs);   // Generate all quadruples for the expression
+  printf("Input : x = %s\n", rhs);   // Print the original statement
+  printf("\nThree Address Code:\n");   // Print a heading (\n at the start gives a blank line before it)
+  for (int i = 0; i < n; i++)   // Go through every quadruple row
+    printf("%s = %s %s %s\n", Q[i][3],   // Print "result = arg1 op arg2": first the Result column...
+       Q[i][1], Q[i][0], Q[i][2]);   // ...then Arg1, Op and Arg2, giving lines like t1 = c - d
+  printf("x = %s\n", vals[vtop]);   // The last temporary is left on the operand stack; assign it to x
+  printf("\nQuadruples:\n");   // Print the heading for the quadruple table
+  printf("Op   Arg1  Arg2  Result\n");   // Print the table header row
+  for (int i = 0; i < n; i++)   // Go through every quadruple row again
+    printf("%-5s%-6s%-6s%s\n", Q[i][0],   // %-5s / %-6s print left-aligned in fixed width, so the columns line up
+       Q[i][1], Q[i][2], Q[i][3]);   // Print Op, Arg1, Arg2 and Result of this row
+  printf("%-5s%-12s%s\n", "=", vals[vtop], "x");   // Last row: (=, t4, blank, x); width 12 leaves the empty Arg2 column
+  return 0;   // Tell the operating system the program finished successfully
+}
